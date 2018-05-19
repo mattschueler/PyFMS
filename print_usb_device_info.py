@@ -4,16 +4,14 @@
 # if it cannot find a piece.
 
 import usb.core
+import usb.backend.libusb1
 from ctypes import *
 import os
 from tabulate import tabulate
 import operator
 
-# Import the libusb DLL file
-dll_name = 'libusb-1.0-ms64.dll'
-dllpath = os.path.join(os.path.abspath('./libusb'),dll_name)
-libusb = CDLL(dllpath)
-
+# Wraps the DLL backend to PyUSB
+backend = usb.backend.libusb1.get_backend(find_library=lambda x: './libusb/libusb-1.0-ms64.dll')
 # Find all USB devices connected
 devices = usb.core.find(find_all=1)
 

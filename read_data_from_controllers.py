@@ -4,15 +4,11 @@
 # for this simple test program
 
 import usb.core
+import usb.backend.libusb1
 from ctypes import *
 import os
 import time
 import copy
-
-# Import the libusb DLL file
-dll_name = 'libusb-1.0-ms64.dll'
-dllpath = os.path.join(os.path.abspath('./libusb'),dll_name)
-libusb = CDLL(dllpath)
 
 # Maps the data bytes to something like (data[i]&j)>>k to extract individual buttons, sticks, hats, etc
 device_name = 'DragonRise_Inc.-Generic__USB__Joystick'
@@ -28,6 +24,8 @@ def mapDataToVars(data, mapping):
         values[elem] = (data[map['index']]&map['mask'])>>map['shift']
     return values
 
+# Wraps the DLL backend to PyUSB
+backend = usb.backend.libusb1.get_backend(find_library=lambda x: './libusb/libusb-1.0-ms64.dll')
 # Get a list of all the controllers with this vendor and product id
 # Note: this is specific to the controller I used, you will have to find which
 # numbers are used for your controllers
