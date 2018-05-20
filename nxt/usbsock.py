@@ -38,14 +38,10 @@ class USBSock(object):
         'Use to connect to NXT.'
         if self.debug:
             print('Connecting via USB...')
-        config = self.device.configurations[0]
-        iface = config.interfaces[0][0]
-        self.blk_out, self.blk_in = iface.endpoints
-        self.handle = self.device.open()
-        self.handle.setConfiguration(1)
-        self.handle.claimInterface(0)
+        self.blk_in, self.blk_out = self.device[0][(0,0)]
+        self.device.set_configuration()
         if os.name != 'nt': # http://code.google.com/p/nxt-python/issues/detail?id=33
-            self.handle.reset()
+            self.device.reset()
         if self.debug:
             print('Connected.')
         return Brick(self)
@@ -66,7 +62,7 @@ class USBSock(object):
         if self.debug:
             print('Send:', end=' ')
             print(':'.join('%02x' % ord(c) for c in data))
-        self.handle.bulkWrite(self.blk_out.address, data)
+        self.device.write(self.blk_out, data, timeout=5000)
 
     def recv(self):
         'Use to receive raw data over USB connection ***ADVANCED USERS ONLY***'
@@ -81,7 +77,6 @@ def find_bricks(host=None, name=None):
     'Use to look for NXTs connected by USB only. ***ADVANCED USERS ONLY***'
     # FIXME: probably should check host (MAC)
     # if anyone knows how to do this, please file a bug report
-    for bus in usb.busses():
-        for device in bus.devices:
-            if device.idVendor == ID_VENDOR_LEGO and device.idProduct == ID_PRODUCT_NXT:
-                yield USBSock(device)
+    for device in usb.core.find(find_all=1):
+        if device.idVendor == ID_VENDOR_LEGO and device.idProduct == ID_PRODUCT_NXT:
+            yield USBSock(device)
