@@ -62,11 +62,11 @@ class USBSock(object):
         if self.debug:
             print('Send:', end=' ')
             print(':'.join('%02x' % ord(c) for c in data))
-        self.device.write(self.blk_out, data, timeout=5000)
+        self.device.write(self.blk_out, data)
 
     def recv(self):
         'Use to receive raw data over USB connection ***ADVANCED USERS ONLY***'
-        data = self.handle.bulkRead(self.blk_in.address, 64)
+        data = self.device.read(self.blk_in, 64)
         if self.debug:
             print('Recv:', end=' ')
             print(':'.join('%02x' % (c & 0xFF) for c in data))
