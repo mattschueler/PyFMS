@@ -1,6 +1,8 @@
 # nxt.locator module -- Locate LEGO Minstorms NXT bricks via USB or Bluetooth
 # Copyright (C) 2006, 2007  Douglas P Lau
 # Copyright (C) 2009  Marcus Wanner
+# Copyright (C) 2013  Dave Churchill, Marcus Wanner
+# Copyright (C) 2015, 2016, 2017, 2018 Multiple Authors
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -17,19 +19,20 @@ import traceback, configparser, os
 class BrickNotFoundError(Exception):
     pass
 
+
 class NoBackendError(Exception):
     pass
+
 
 class Method():
     """Used to indicate which comm backends should be tried by find_bricks/
 find_one_brick. Any or all can be selected."""
-    def __init__(self, usb=True, bluetooth=True, fantomusb=False, fantombt=False):
+    def __init__(self, usb=True, bluetooth=True, device=False):
         #new method options MUST default to False!
         self.usb = usb
         self.bluetooth = bluetooth
-        self.fantom = fantomusb or fantombt
-        self.fantomusb = fantomusb
-        self.fantombt = fantombt
+        self.device = device
+
 
 def find_bricks(host=None, name=None, silent=False, method=Method()):
     """Used by find_one_brick to look for bricks ***ADVANCED USERS ONLY***"""
@@ -45,7 +48,7 @@ def find_bricks(host=None, name=None, silent=False, method=Method()):
         except ImportError:
             import sys
             if not silent: print("USB module unavailable, not searching there", file=sys.stderr)
-    
+
     if method.bluetooth:
         try:
             from . import bluesock
@@ -59,42 +62,36 @@ def find_bricks(host=None, name=None, silent=False, method=Method()):
         except ImportError:
             import sys
             if not silent: print("Bluetooth module unavailable, not searching there", file=sys.stderr)
-    
-    if method.fantom:
+
+    if method.device:
         try:
-            from . import fantomsock
+            from . import devsock
             methods_available += 1
-            if method.fantomusb:
-                usbsocks = fantomsock.find_bricks(host, name, False)
-                for s in usbsocks:
-                    yield s
-            if method.fantombt:
-                btsocks = fantomsock.find_bricks(host, name, True)
-                for s in btsocks:
-                    yield s
-        except ImportError:
-            import sys
-            if not silent: print("Fantom module unavailable, not searching there", file=sys.stderr)
-    
+            socks = devsock.find_bricks(name=name)
+            for s in socks:
+                yield s
+        except IOError:
+            pass
+
     if methods_available == 0:
         raise NoBackendError("No selected backends are available! Did you install the comm modules?")
 
 
 def find_one_brick(host=None, name=None, silent=False, strict=None, debug=False, method=None, confpath=None):
-    """Use to find one brick. The host and name args limit the search to 
-a given MAC or brick name. Set silent to True to stop nxt-python from 
-printing anything during the search. This function by default 
-automatically checks to see if the brick found has the correct host/name 
-(if either are provided) and will not return a brick which doesn't 
-match. This can be disabled (so the function returns any brick which can 
-be connected to and provides a valid reply to get_device_info()) by 
-passing strict=False. This will, however, still tell the comm backends 
-to only look for devices which match the args provided. The confpath arg 
-specifies the location of the configuration file which brick location 
-information will be read from if no brick location directives (host, 
+    """Use to find one brick. The host and name args limit the search to
+a given MAC or brick name. Set silent to True to stop nxt-python from
+printing anything during the search. This function by default
+automatically checks to see if the brick found has the correct host/name
+(if either are provided) and will not return a brick which doesn't
+match. This can be disabled (so the function returns any brick which can
+be connected to and provides a valid reply to get_device_info()) by
+passing strict=False. This will, however, still tell the comm backends
+to only look for devices which match the args provided. The confpath arg
+specifies the location of the configuration file which brick location
+information will be read from if no brick location directives (host,
 name, strict, or method) are provided."""
     if debug and silent:
-        silent=False
+        silent = False
         print("silent and debug can't both be set; giving debug priority")
 
     conf = read_config(confpath, debug)
@@ -102,13 +99,19 @@ name, strict, or method) are provided."""
         host	= conf.get('Brick', 'host')
         name	= conf.get('Brick', 'name')
         strict	= bool(int(conf.get('Brick', 'strict')))
-        method	= eval('Method(%s)' % conf.get('Brick', 'method'))
+        method_value = conf.get('Brick', 'method')
+        if method_value:
+            methods = map(lambda x: x.strip().split('='),
+                          method_value.split(','))
+            method = Method(**{k: v == 'True' for k, v in methods
+                               if k in ('bluetooth', 'usb', 'device')})
     if not strict: strict = True
     if not method: method = Method()
+
     if debug:
         print("Host: %s Name: %s Strict: %s" % (host, name, str(strict)))
-        print("USB: %s BT: %s Fantom: %s FUSB: %s FBT: %s" % (method.usb, method.bluetooth, method.fantom, method.fantombt, method.fantomusb))
-    
+        print("USB: {} BT: {}".format(method.usb, method.bluetooth))
+
     for s in find_bricks(host, name, silent, method):
         try:
             if host and 'host' in dir(s) and s.host != host:
@@ -117,29 +120,57 @@ name, strict, or method) are provided."""
                 if strict: continue
             b = s.connect()
             info = b.get_device_info()
+            if debug:
+                print("info: " + str(info))
+
+            strict = False
+
             if host and info[1] != host:
                 if debug:
                     print("Warning: the brick found does not match the host provided (get_device_info).")
+                    print("  host:" + str(host))
+                    print("  info[1]:" + info[1])
                 if strict:
                     s.close()
                     continue
-            if name and info[0].strip('\0') != name:
+
+            info = list(info)
+            info[0] = str(info[0])
+            info[0] = info[0][2:(len(info[0])-1)]
+            info[0] = info[0].strip('\\x00')
+
+            if info[0] != name:
                 if debug:
                     print("Warning; the brick found does not match the name provided.")
+                    print("  host:" + str(host))
+                    print("  info[0]:" + info[0])
+                    print("  name:" + str(name))
                 if strict:
                     s.close()
                     continue
+
             return b
         except:
             if debug:
                 traceback.print_exc()
                 print("Failed to connect to possible brick")
+
+    print("""No brick was found.
+    Is the brick turned on?
+    For more diagnosing use the debug=True argument or
+    try the 'nxt_test' script located in /bin or ~/.local/bin""")
     raise BrickNotFoundError
 
 
 def server_brick(host, port = 2727):
     from . import ipsock
     sock = ipsock.IpSock(host, port)
+    return sock.connect()
+
+
+def device_brick(filename):
+    from . import devsock
+    sock = devsock.find_bricks(filename=filename)
     return sock.connect()
 
 
@@ -151,6 +182,7 @@ def read_config(confpath=None, debug=False):
     if conf.has_section('Brick') == False:
         conf.add_section('Brick')
     return conf
+
 
 def make_config(confpath=None):
     conf = configparser.RawConfigParser()
@@ -166,7 +198,7 @@ def make_config(confpath=None):
     conf.set('Brick', 'name', 'MyNXT')
     conf.set('Brick', 'host', '54:32:59:92:F9:39')
     conf.set('Brick', 'strict', 0)
-    conf.set('Brick', 'method', 'usb=True, bluetooth=False, fantomusb=True')
+    conf.set('Brick', 'method', 'usb=True, bluetooth=False')
     conf.write(open(confpath, 'w'))
     print("The file has been written at %s" % confpath)
     print("The file contains less-than-sane default values to get you started.")

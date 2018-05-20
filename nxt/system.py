@@ -202,7 +202,7 @@ def _parse_boot(tgram):
 def set_brick_name(opcode, bname):
     tgram = _create(opcode)
     if len(bname) > 15:
-        print("Warning! Brick name %s will be truncated to %s!" % (bname, bname[0:15]))
+        print(("Warning! Brick name %s will be truncated to %s!" % (bname, bname[0:15])))
         bname = bname[0:15]
     elif len(bname) < 15:
         bname += '\x00' * (15-len(bname)) #fill the extra chars with nulls
@@ -217,7 +217,7 @@ def get_device_info(opcode):
 
 def _parse_get_device_info(tgram):
     tgram.check_status()
-    name = tgram.parse_string(15)
+    name = tgram.parse_string(15).decode('utf-8').split('\0')[0]
     a0 = tgram.parse_u8()
     a1 = tgram.parse_u8()
     a2 = tgram.parse_u8()
